@@ -1,10 +1,11 @@
 pub mod simulation;
 
-use actix_web::{get, post, web, App, HttpResponse, HttpServer, Responder};
+use actix_web::{get, middleware, post, web, App, HttpResponse, HttpServer, Responder};
 use simulation::{Body, Universe};
 
 #[get("/")]
 async fn hello() -> impl Responder {
+    println!("hello hit");
     HttpResponse::Ok().body("Hello world!")
 }
 
@@ -41,6 +42,7 @@ async fn manual_hello() -> impl Responder {
 async fn main() -> std::io::Result<()> {
     HttpServer::new(|| {
         App::new()
+            .wrap(middleware::Logger::default())
             .service(hello)
             .service(echo)
             .route("/hey", web::get().to(manual_hello))
