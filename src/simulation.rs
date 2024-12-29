@@ -1,9 +1,13 @@
 use std::{default, iter, ops, vec};
 
+use serde::{Serialize, Deserialize};
+
 use uuid::Uuid;
 use physical_constants::{self, NEWTONIAN_CONSTANT_OF_GRAVITATION};
 
-#[derive(Default, Debug, Clone, Copy)]
+use crate::handle::Handle;
+
+#[derive(Default, Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct Pos
 {
     pub x: f64,
@@ -42,6 +46,18 @@ impl ops::Mul<f64> for Pos {
     }
 }
 
+impl ops::Add<Pos> for Pos {
+    type Output = Pos;
+
+    fn add(self, rhs: Pos) -> Self::Output {
+        Pos{
+            x: self.x + rhs.x,
+            y: self.y + rhs.y,
+            z: self.z + rhs.z,
+        }
+    }
+}
+
 impl ops::Sub<Pos> for Pos {
     type Output = Pos;
 
@@ -66,7 +82,7 @@ impl iter::Sum for Pos {
     }
 }
 
-#[derive(Default)]
+#[derive(Clone, Copy, Default, Serialize, Deserialize)]
 pub struct Body
 {
     pub id: uuid::Uuid,
@@ -107,20 +123,39 @@ impl Body {
     }
 }
 
+#[derive(Default, Clone, Serialize, Deserialize)]
 pub struct Universe
 {
+    pub id: uuid::Uuid,
     pub bodies: Vec<Body>,
 }
 
 impl Universe {
     pub fn new() -> Universe {
         Universe{
+            id: Uuid::new_v4(),
             bodies: vec![]
         }
     }
 
+    pub fn get_body(&self, id: uuid::Uuid) -> Option<&Body> {
+        self.bodies.iter().find(|b| b.id == id)
+    }
+
+    pub fn get_body_mut(&mut self, id: uuid::Uuid) -> Option<&mut Body> {
+        self.bodies.iter_mut().find(|b| b.id == id)
+    }
+
     pub fn add_body(&mut self, body: Body) {
         self.bodies.push(body);
+    }
+
+    pub fn remove_body(&mut self, id: &uuid::Uuid) {
+        self.bodies.retain(|&b| b.id != *id);
+    }
+
+    pub fn remove_bodies(&mut self, ids: &Vec<Handle>) {
+        //self.bodies.retain(|b| !ids.contains(&b.id));
     }
 
     pub fn tick(&mut self) {
