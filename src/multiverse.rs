@@ -2,7 +2,7 @@ use std::{collections::HashMap, ops::Mul, thread::panicking};
 
 use serde::{de::{self, DeserializeOwned}, Deserialize, Serialize};
 
-use crate::{handle::{self, Handle}, simulation::{Body, Pos, Universe}, store::{Store, StoreSQL}, timeline::Timeline};
+use crate::{handle::{self, Handle}, simulation::{Body, Pos, Universe}, store::{Store, StoreSQL}, timeline::{BodyBranchParams, Timeline}};
 
 pub struct Multiverse
 {
@@ -58,6 +58,18 @@ impl Multiverse {
         }
     }
 
+    pub fn update_multiverse(&mut self, handle: Handle, edits: &mut Vec<BranchParams>) {
+        match self.get_node_mut(&handle) {
+            Some(node) => {
+                match &mut node.delta {
+                    Some(deltas) => deltas.append(edits),
+                    None => node.delta = Some(edits.to_owned()),
+                }
+            }
+            None => ()
+        }
+    }
+
     // handle is the Node handle
     pub fn get_universe(&self, handle: &Handle) -> Option<Universe> {
         Some(self.get_node(handle)?.get_universe(&*self.universe_store, &self))
@@ -69,6 +81,10 @@ impl Multiverse {
 
     pub fn get_node(&self, handle: &Handle) -> Option<MultiverseNode> {
         self.node_store.get(handle)
+    }
+
+    pub fn get_node_mut(&mut self, handle: &Handle) -> Option<&mut MultiverseNode> {
+        self.nodes.get_mut(handle)
     }
 
     pub fn advance(&mut self, handle: &Handle, duration: i32) -> MultiverseNode {
