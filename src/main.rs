@@ -73,7 +73,7 @@ async fn fetch_node(path: web::Path<(String,)>) -> impl Responder {
 
 #[get("/schema")]
 async fn schema() -> impl Responder {
-    let schema = schema_for!(BranchParams);
+    let schema = schema_for!(BranchArgs);
     HttpResponse::Ok().body(serde_json::to_string_pretty(&schema).unwrap())
 }
 
