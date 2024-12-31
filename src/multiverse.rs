@@ -1,8 +1,9 @@
-use std::{collections::HashMap, ops::Mul, thread::panicking};
+use std::collections::HashMap;
 
-use serde::{de::{self, DeserializeOwned}, Deserialize, Serialize};
+use schemars::JsonSchema;
+use serde::{Deserialize, Serialize};
 
-use crate::{handle::{self, Handle}, simulation::{Body, Pos, Universe}, store::{Store, StoreSQL}, timeline::{BodyBranchParams, Timeline}};
+use crate::{handle::Handle, simulation::{Body, Pos, Universe}, store::{Store, StoreSQL}, timeline::Timeline};
 
 pub struct Multiverse
 {
@@ -25,6 +26,7 @@ impl Multiverse {
         };
         println!("Loading nodes from storage");
         for h in m.node_store.get_handles() {
+            println!("Loading a node");
             match m.node_store.get(&h) {
                 Some(node) => {
                     if node.parent.is_none() {
@@ -37,7 +39,15 @@ impl Multiverse {
         }
         println!("Root node: {:?}", &m.root_node);
         if m.root_node.is_none() {
-            let new_node = MultiverseNode::new(None, 0);
+            let new_node = MultiverseNode::new(None, 0, vec![
+                BranchParams{
+                    target_body: Handle::new().id,
+                    position: Some(Pos{ x: 1.0, y: 2.0, z: 0.0 }),
+                    d_position: None,
+                    velocity: Some(Pos{x: 0.0, y: 0.0, z: 0.1}),
+                    d_velocity: None,
+                    mass: Some(1.0),
+                    d_mas: None }]);
             let new_handle = m.node_store.save(new_node);
             m.root_node = Some(new_handle);
             println!("New root node: {:?}", &m.root_node);
@@ -48,13 +58,9 @@ impl Multiverse {
     // Fetch a timeline spanning from the root to some arbitrary node
     pub fn get_timeline(&self, handle: &Handle) -> Timeline
     {
-        match self.nodes.get(handle) {
-            Some(node) => {
-                let mut lineage = node.get_lineage(self);
-                lineage.push(*handle);
-                todo!()
-            },
-            None => todo!(),
+        match self.get_node(handle) {
+            Some(node) => Timeline::new(&node, self),
+            None => Timeline{universes: vec![]}
         }
     }
 
@@ -72,7 +78,7 @@ impl Multiverse {
 
     // handle is the Node handle
     pub fn get_universe(&self, handle: &Handle) -> Option<Universe> {
-        Some(self.get_node(handle)?.get_universe(&*self.universe_store, &self))
+        Some(self.get_node(handle)?.get_universe(&self))
     }
 
     pub fn get_nodes(&self) -> Vec<Handle> {
@@ -88,22 +94,40 @@ impl Multiverse {
     }
 
     pub fn advance(&mut self, handle: &Handle, duration: i32) -> MultiverseNode {
-        let new_node = MultiverseNode::new(Some(*handle), duration);
-        new_node
+        let new_node = MultiverseNode::new(Some(*handle), duration, vec![]);
+        let parent = self.nodes.get_mut(handle).unwrap();
+        parent.next = Some(*handle);
+        self.node_store.save_handle(&parent, *handle);
+        let h = self.node_store.save(new_node);
+        let node = self.node_store.get(&h).unwrap();
+        self.nodes.insert(h, node);
+        self.node_store.get(&h).unwrap()
     }
+
+    pub fn branch(&mut self, handle: &Handle, duration: i32, deltas: Vec<BranchParams>) {
+        let new_node = MultiverseNode::new(Some(*handle), duration, deltas);
+        let new_handle = self.node_store.save(new_node);
+        let mut parent = self.node_store.get(&handle).unwrap();
+        parent.children.push(new_handle);
+        self.node_store.save_handle(&parent, *handle);
+        let new_node = self.node_store.get(&new_handle).unwrap();
+        self.nodes.insert(new_handle, new_node);
+    }
+
+    //pub fn edit_root(&self, )
 }
 
-#[derive(Clone, Copy, Serialize, Deserialize)]
+#[derive(Clone, Copy, Default, Serialize, Deserialize, JsonSchema)]
 pub struct BranchParams
 {
-    target_body: uuid::Uuid,
+    pub target_body: uuid::Uuid,
     // d_ prefix stands for "delta"
-    position: Option<Pos>,
-    d_position: Option<Pos>,
-    velocity: Option<Pos>,
-    d_velocity: Option<Pos>,
-    mass: Option<f64>,
-    d_mas: Option<f64>,
+    pub position: Option<Pos>,
+    pub d_position: Option<Pos>,
+    pub velocity: Option<Pos>,
+    pub d_velocity: Option<Pos>,
+    pub mass: Option<f64>,
+    pub d_mas: Option<f64>,
 }
 
 impl BranchParams {
@@ -135,7 +159,7 @@ impl BranchParams {
     }
 }
 
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize, JsonSchema)]
 pub struct MultiverseNode
 {
     // The parent we base ourselves off of
@@ -153,14 +177,25 @@ pub struct MultiverseNode
 }
 
 impl MultiverseNode {
-    pub fn new(parent: Option<Handle>, age: i32) -> MultiverseNode {
-        MultiverseNode{
-            parent: parent,
-            delta: None,
-            next: None,
-            children: vec![],
-            universe: Handle::new(),
-            relative_age: age
+    pub fn new(parent: Option<Handle>, age: i32, deltas: Vec<BranchParams>) -> MultiverseNode {
+        if deltas.is_empty() {
+            MultiverseNode{
+                parent: parent,
+                delta: None,
+                next: None,
+                children: vec![],
+                universe: Handle::new(),
+                relative_age: age
+            }
+        } else {
+            MultiverseNode{
+                parent: parent,
+                delta: Some(deltas),
+                next: None,
+                children: vec![],
+                universe: Handle::new(),
+                relative_age: age
+            }
         }
     }
 
@@ -190,11 +225,11 @@ impl MultiverseNode {
         }
     }
 
-    pub fn calculate_universe(&self, store: &dyn Store<Universe>, multiverse: &Multiverse) -> Universe {
+    pub fn calculate_universe(&self, multiverse: &Multiverse) -> Universe {
         let mut new_universe = match self.get_parent(multiverse) {
             None => Universe::new(),
             Some(parent) => {
-                parent.get_universe(store, multiverse)
+                parent.get_universe(multiverse)
             }
         };
         match &self.delta {
@@ -206,12 +241,11 @@ impl MultiverseNode {
             _ => (),
         }
         new_universe.tick_for(self.relative_age);
-        store.save_handle(&new_universe, self.universe);
-        // TODO: replace this super expensive recalc with a dirty flag for lazy eval
+        multiverse.universe_store.save_handle(&new_universe, self.universe);
         for child_handle in &self.children {
             match multiverse.nodes.get(&child_handle) {
                 Some(child) => {
-                    child.calculate_universe(store, multiverse);
+                    child.clear_universe(multiverse);
                 },
                 None => (),
             };
@@ -219,10 +253,24 @@ impl MultiverseNode {
         new_universe
     }
 
-    pub fn get_universe(&self, store: &dyn Store<Universe>, multiverse: &Multiverse) -> Universe {
-        match store.get(&self.universe) {
+    pub fn get_universe(&self, multiverse: &Multiverse) -> Universe {
+        match multiverse.universe_store.get(&self.universe) {
             Some(u) => return u,
-            None => self.calculate_universe(store, multiverse)
+            None => self.calculate_universe(multiverse)
+        }
+    }
+
+    pub fn clear_universe(&self, multiverse: &Multiverse) {
+        multiverse.universe_store.delete_handle(self.universe);
+        for child in self.children.iter() {
+            match multiverse.get_node(child)
+            {
+                Some(node) => node.clear_universe(multiverse),
+                None => (),
+            };
+        }
+        if self.next.is_some() {
+            let next = multiverse.get_node(&self.next.unwrap());
         }
     }
 }

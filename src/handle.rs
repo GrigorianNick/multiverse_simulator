@@ -1,11 +1,12 @@
 use std::str::FromStr;
 
+use schemars::JsonSchema;
 use serde::{Serialize, Deserialize};
 use uuid::Uuid;
 
 use crate::store::Store;
 
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct Handle {
     pub id: uuid::Uuid,
 }

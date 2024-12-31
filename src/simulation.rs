@@ -1,5 +1,6 @@
 use std::{default, iter, ops, vec};
 
+use schemars::JsonSchema;
 use serde::{Serialize, Deserialize};
 
 use uuid::Uuid;
@@ -7,7 +8,7 @@ use physical_constants::{self, NEWTONIAN_CONSTANT_OF_GRAVITATION};
 
 use crate::handle::Handle;
 
-#[derive(Default, Debug, Clone, Copy, Serialize, Deserialize)]
+#[derive(Default, Debug, Clone, Copy, Serialize, Deserialize, JsonSchema)]
 pub struct Pos
 {
     pub x: f64,

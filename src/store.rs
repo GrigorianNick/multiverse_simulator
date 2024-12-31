@@ -6,6 +6,7 @@ use rusqlite::{self, Connection};
 
 pub trait Store<T>
 {
+    fn delete_handle(&self, handle: Handle);
     fn get(&self, handle: &Handle) -> Option<T>;
     fn get_handles(&self) -> Vec<Handle>;
     fn save(&self, val: T) -> Handle;
@@ -46,6 +47,7 @@ impl<T: Serialize + DeserializeOwned> Store<T> for StoreSQL {
         let mut ret_vec = vec![];
         let mut stmt = self.conn.prepare("SELECT id FROM data").expect("Failed to prepare SQL statement");
         match stmt.query_row([], |row| {
+            println!("Got a row from a database");
             let v: String = row.get(0).unwrap();
             Ok(v)
         }) {
@@ -56,9 +58,10 @@ impl<T: Serialize + DeserializeOwned> Store<T> for StoreSQL {
     }
 
     fn save(&self, val: T) -> Handle {
+        println!("Saving handle");
         let handle = Handle::new();
         let json = serde_json::to_string(&val).expect("Failed to serialize json");
-        self.conn.execute("INSERT OR REPLACE INTO data (id, json) VALUES (?1, ?2)", (&handle.id.to_string(), json));
+        println!("Inserted: {}", self.conn.execute("INSERT INTO data (id, json) VALUES (?1, ?2)", (&handle.id.to_string(), json)).expect("Failed to create row"));
         handle
     }
 
@@ -66,46 +69,8 @@ impl<T: Serialize + DeserializeOwned> Store<T> for StoreSQL {
         let json = serde_json::to_string(&val).expect("Failed to serialize json");
         self.conn.execute("REPLACE INTO data (id, json) VALUES (?1, ?2)", (&handle.id.to_string(), json));
     }
-}
 
-/*pub struct UniverseStoreSQL
-{
-    conn: rusqlite::Connection,
-}
-
-impl UniverseStoreSQL {
-    pub fn new() -> UniverseStoreSQL {
-        let u = UniverseStoreSQL{
-            conn: Connection::open("./universe.sqlite").expect("Failed to open universe.sqlite"),
-        };
-        u.conn.execute(
-        "CREATE TABLE universes (
-            id   TEXT PRIMARY KEY,
-            json TEXT
-        )",
-        ());
-        u
+    fn delete_handle(&self, handle: Handle) {
+        self.conn.execute("DELETE FROM data WHERE id == ?1", [&handle.id.to_string()]);
     }
 }
-
-impl<T> Store<T> for UniverseStoreSQL {
-    fn get_universe(&self, id: &Uuid) -> Option<simulation::Universe> {
-        let mut stmt = self.conn.prepare("SELECT id, json FROM universes WHERE id = ?1").expect("Failed to prep statement");
-        let universe = stmt.query_row([id.to_string()], |row| {
-            let json: String = row.get(1).expect("Failed to get json");
-            let universe: simulation::Universe = serde_json::from_str(json.as_str()).expect("failed to parse json");
-            Ok(universe)
-        });
-        match universe
-        {
-            Ok(u) => Some(u),
-            Err(_) => None
-        }
-    }
-
-    fn save_universe(&self, universe: &simulation::Universe) {
-        let universe_json = serde_json::to_string(&universe).expect("Failed to serialize json");
-        self.conn.execute(
-            "INSERT OR REPLACE INTO universes (id, json) VALUES (?1, ?2)", (universe.id.to_string(), universe_json));
-    }
-}*/
